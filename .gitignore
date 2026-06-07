@@ -1,0 +1,7 @@
+node_modules/
+dist/
+demo/workspace/
+*.log
+.env
+.DS_Store
+.claude/settings.local.json

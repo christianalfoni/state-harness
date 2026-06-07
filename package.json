@@ -1,0 +1,54 @@
+{
+  "name": "state-harness",
+  "version": "0.1.0",
+  "description": "A state-first agent harness. An agent is a state schema plus effect tools; the harness gives the model getState/setState/yield for free, and it communicates exclusively through tool calls — no free-text turns. Pluggable provider adapters; ships with an Anthropic Messages API adapter.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers/anthropic": {
+      "types": "./dist/providers/anthropic.d.ts",
+      "import": "./dist/providers/anthropic.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:demo": "tsc -p demo/tsconfig.json",
+    "example": "tsx examples/basic.ts",
+    "demo": "tsx demo/cli.tsx"
+  },
+  "keywords": [
+    "agent",
+    "llm",
+    "state",
+    "tools",
+    "tool-use",
+    "anthropic",
+    "claude",
+    "harness"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "ink": "^5.0.1",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
