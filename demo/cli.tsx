@@ -77,7 +77,10 @@ const view = (state: DemoState) => (
   <App state={state} workspace={workspace} onSubmit={submit} />
 );
 
-const session = agent.createSession();
+// The schema is shape only — the session supplies the complete initial state.
+const session = agent.createSession({
+  state: { changes: [], approvedFiles: [], status: "idle" },
+});
 const app = render(view(session.getState()));
 session.subscribe((state) => app.rerender(view(state)));
 

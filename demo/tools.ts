@@ -9,30 +9,30 @@ import type { Tool, ToolDefinition } from "../src/index.js";
 const execAsync = promisify(exec);
 
 /**
- * The agent's state, as a schema. `changes` is the model's to maintain;
- * `approvedFiles` and `status` are read-only — only the host (the CLI) sets them.
+ * The agent's state schema — the domain the model reasons about and the UI shows.
+ * `changes` is the model's to maintain; `approvedFiles` and `status` are read-only
+ * (host-only). Tool *configuration* (the workspace path) is NOT state — it's
+ * injected when the tools are built (see `makeTools`).
  */
 export const StateSchema = z.object({
-  changes: z
-    .array(
-      z.object({
-        file: z.string(),
-        description: z.string(),
-        status: z.enum(["proposed", "in_progress", "done"]).default("proposed"),
-      }),
-    )
-    .default([]),
+  changes: z.array(
+    z.object({
+      file: z.string(),
+      description: z.string(),
+      status: z.enum(["proposed", "in_progress", "done"]),
+    }),
+  ),
   /** Files the user has approved for editing. Read-only to the model. */
-  approvedFiles: z.array(z.string()).default([]).readonly(),
+  approvedFiles: z.array(z.string()).readonly(),
   /** Working/idle, driven by the CLI. Read-only to the model. */
-  status: z.enum(["idle", "working"]).default("idle").readonly(),
+  status: z.enum(["idle", "working"]).readonly(),
 });
 
 export type DemoState = z.infer<typeof StateSchema>;
 export type Change = DemoState["changes"][number];
 export type ChangeStatus = Change["status"];
 
-/** Build the effect tools, closed over the sandbox workspace. */
+/** Build the effect tools, configured with the sandbox workspace (tool config, not state). */
 export function makeTools(workspace: string): Tool<DemoState>[] {
   const tool = <S extends z.ZodType>(def: ToolDefinition<S, DemoState>) =>
     defineTool<S, DemoState>(def);
@@ -127,8 +127,8 @@ export function makeTools(workspace: string): Tool<DemoState>[] {
     name: "bash",
     description:
       "Run a shell command in the workspace (builds, tests, git, installs). Returns stdout, " +
-      "stderr, exit code; a non-zero exit is returned, not thrown. Do NOT use it to edit " +
-      "code files — use write_file/edit so the change goes through approval.",
+      "stderr, exit code; a non-zero exit is returned, not thrown. Do NOT use it to edit code " +
+      "files — use write_file/edit so the change goes through approval.",
     input: z.object({ command: z.string().describe("The shell command to run.") }),
     handler: async ({ command }) => {
       try {

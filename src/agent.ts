@@ -7,14 +7,15 @@ export interface AgentConfig<Schema extends StateSchema> {
   /** The backend adapter (e.g. `anthropicProvider(...)`). */
   provider: Provider;
   /**
-   * The state schema (a Zod object). Its shape + `.default()`s define the initial
-   * state, and the schema is described to the model in the system prompt. Mark
-   * fields `.readonly()` to make them host-only (the model's `setState` refuses them).
+   * The state schema (a Zod object) — the *shape* of the agent's state, described
+   * to the model in the system prompt. Mark fields `.readonly()` to make them
+   * host-only (the model's `setState` refuses them). The *initial* values are
+   * passed per session at `createSession`.
    */
   state: Schema;
   /**
    * Your effect tools (run a command, read a file, hit an API). The harness adds
-   * `getState` / `setState` / `yield` automatically.
+   * `getState` / `setState` automatically.
    */
   tools: Tool<z.infer<Schema>>[];
   /** System prompt. The state description and a tool-only preamble are appended. */
@@ -25,21 +26,25 @@ export interface AgentConfig<Schema extends StateSchema> {
   maxTurns?: number;
 }
 
-export interface SessionArgs<State> {
-  /** Override the initial state for this session (e.g. to resume one). */
-  state?: State;
+export interface SessionArgs<Schema extends StateSchema> {
+  /**
+   * The complete initial state for this session. The schema is *shape only* (no
+   * defaults), so the session supplies every value — a fresh start, or a state
+   * you're resuming. It's validated against the schema.
+   */
+  state: z.input<Schema>;
 }
 
-export interface RunArgs<State> extends SessionArgs<State> {
+export interface RunArgs<Schema extends StateSchema> extends SessionArgs<Schema> {
   signal?: AbortSignal;
 }
 
-interface ResolvedConfig<State> {
+interface ResolvedConfig<Schema extends StateSchema> {
   provider: Provider;
-  tools: Tool<State>[];
-  state: State;
+  schema: Schema;
+  tools: Tool<z.infer<Schema>>[];
   system?: string;
-  hooks?: Hooks<State>;
+  hooks?: Hooks<z.infer<Schema>>;
   maxTurns?: number;
 }
 
@@ -53,15 +58,14 @@ const TOOL_ONLY_PREAMBLE =
   "instead of pretending it's done.";
 
 /**
- * A configured, reusable agent — defined by its state schema and its tools. Spin
- * up a {@link Session} with `createSession` for multi-turn use, or `run` for a
- * one-shot exchange.
+ * A configured, reusable agent — defined by its state *schema* and its tools.
+ * Initial state is supplied per session via `createSession({ state })`.
  */
-export class Agent<State> {
-  private readonly config: ResolvedConfig<State>;
+export class Agent<Schema extends StateSchema> {
+  private readonly config: ResolvedConfig<Schema>;
   private readonly system: string;
 
-  constructor(config: ResolvedConfig<State>) {
+  constructor(config: ResolvedConfig<Schema>) {
     this.config = config;
     this.system = config.system
       ? `${config.system}\n\n${TOOL_ONLY_PREAMBLE}`
@@ -73,39 +77,40 @@ export class Agent<State> {
     return this.system;
   }
 
-  /** Start a multi-turn session. Call `session.send()` for each user message. */
-  createSession(args?: SessionArgs<State>): Session<State> {
-    return new Session<State>({
+  /** Start a multi-turn session with its complete initial state. Call `session.send()` per user message. */
+  createSession(args: SessionArgs<Schema>): Session<z.infer<Schema>> {
+    // Validate the supplied state against the schema.
+    const state = this.config.schema.parse(args.state) as z.infer<Schema>;
+    return new Session<z.infer<Schema>>({
       provider: this.config.provider,
       tools: this.config.tools,
       system: this.system,
       hooks: this.config.hooks,
       maxTurns: this.config.maxTurns,
-      state: args?.state ?? this.config.state,
+      state,
     });
   }
 
   /** One-shot convenience: start a session and send a single message. */
-  run(input: string, args?: RunArgs<State>): Promise<TurnResult> {
-    return this.createSession({ state: args?.state }).send(input, { signal: args?.signal });
+  run(input: string, args: RunArgs<Schema>): Promise<TurnResult> {
+    return this.createSession({ state: args.state }).send(input, { signal: args.signal });
   }
 }
 
 /**
  * Create an agent from a state schema and a set of effect tools. The harness
- * derives the initial state, describes the schema to the model, and adds the
- * built-in `getState` / `setState` / `yield` tools.
+ * describes the schema to the model and adds the built-in `getState` / `setState`
+ * tools. Provide initial state per session with `createSession({ state })`.
  */
 export function createAgent<Schema extends StateSchema>(
   config: AgentConfig<Schema>,
-): Agent<z.infer<Schema>> {
-  type State = z.infer<Schema>;
-  const { initial, tools: stateTools, preamble } = createStateTools(config.state);
+): Agent<Schema> {
+  const { tools: stateTools, preamble } = createStateTools(config.state);
   const system = [config.system, preamble].filter(Boolean).join("\n\n");
-  return new Agent<State>({
+  return new Agent<Schema>({
     provider: config.provider,
+    schema: config.state,
     tools: [...stateTools, ...config.tools],
-    state: initial,
     system,
     hooks: config.hooks,
     maxTurns: config.maxTurns,

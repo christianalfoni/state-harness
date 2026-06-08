@@ -8,13 +8,11 @@ import type { Tool } from "./types.js";
 export type StateSchema = z.ZodObject<z.ZodRawShape>;
 
 export interface StateTools<State> {
-  /** Initial state, derived from the schema's defaults via `schema.parse({})`. */
-  initial: State;
   /** Top-level keys marked `.readonly()` — the model's `setState` refuses these. */
   readonlyKeys: Set<string>;
-  /** The built-in tools: `getState`, `setState`, `yield`. */
+  /** The built-in tools: `getState` and `setState`. */
   tools: Tool<State>[];
-  /** A system-prompt fragment describing the state schema, initial values, and tools. */
+  /** A system-prompt fragment describing the state schema and the state tools. */
   preamble: string;
 }
 
@@ -28,7 +26,6 @@ export function createStateTools<Schema extends StateSchema>(
   schema: Schema,
 ): StateTools<z.infer<Schema>> {
   type State = z.infer<Schema>;
-  const initial = schema.parse({}) as State;
   const shape = schema.shape as Record<string, z.ZodTypeAny>;
   const readonlyKeys = new Set(
     Object.keys(shape).filter((key) => shape[key] instanceof z.ZodReadonly),
@@ -93,19 +90,18 @@ export function createStateTools<Schema extends StateSchema>(
 
   const preamble =
     "You have a STATE object that you read and write through tools — it is the source of " +
-    "truth and what the user sees.\n\nState schema:\n" +
+    "truth and what the user sees. Its schema:\n" +
     JSON.stringify(jsonSchema) +
-    "\n\nInitial state:\n" +
-    JSON.stringify(initial) +
-    "\n\nRead it with getState (optionally a key) — this does not end your turn. Commit " +
-    "changes with setState, which applies your update AND hands control back to the user " +
-    "(it ENDS your turn). So do all your getState/effect calls first, then setState once " +
-    "when you're ready to hand back. " +
+    "\n\nCall getState at the start (and whenever you need to refresh) to see the current " +
+    "values — getState (optionally a key) does NOT end your turn. Commit changes with " +
+    "setState, which applies your update AND hands control back to the user (it ENDS your " +
+    "turn). So do all your getState/effect calls first, then setState once when you're ready " +
+    "to hand back. " +
     (readonlyKeys.size
       ? `The read-only fields [${readonlyList}] are controlled by the user/system, not you — ` +
-        "call getState to see their current values (e.g. after the user acts on something). "
+        "getState to see their current values (e.g. after the user acts on something). "
       : "") +
-    "The state can change between your turns, so call getState to refresh when it matters.";
+    "The state can change between your turns, so getState to refresh when it matters.";
 
-  return { initial, readonlyKeys, tools: [getState, setState], preamble };
+  return { readonlyKeys, tools: [getState, setState], preamble };
 }

@@ -1,18 +1,33 @@
 # state-harness
 
-A **state-first agent harness**. An agent is defined by a **state schema** and a
-set of **effect tools**. The harness gives the model `getState` / `setState` for
-free — derived from your schema — so managing state isn't something you build per
-app; it's the mechanism. The model never sends free-text messages: every step is
-one or more tool calls, and your interface renders state.
+A **state-first agent harness**. You define a **state schema** and a set of
+**effect tools**; the agent works by reading and writing that state — it never
+talks to you.
 
-The model is a reducer; the state is the model; your tools are the effects; the
-UI is a pure projection. The conversation still exists, but only as the model's
-working memory — not the user's interface.
+> **There is no transcript to read; there is a state object to project.**
 
-The model-facing API still calls these "tools" (that's the wire reality); the
-bundled provider drives the Anthropic Messages API with forced tool use, which is
-what guarantees "tool calls only."
+## Communication is state, not conversation
+
+The agent has no free-text channel — its only outputs are **state changes**
+(`setState`) and effect calls. So everything the user needs to see or act on — a
+plan, a question, a result, progress — has to be a **field in your state
+schema**. The schema is a UX you design: it defines the vocabulary the agent can
+express itself in, and your interface renders it.
+
+That constraint is the feature. A chat agent can ramble, hedge, narrate, or claim
+it did something it didn't. This one can only ever produce values that fit your
+typed schema — structured, validated, renderable, never prose to parse. Want it
+to propose edits? Give it a `changes` field. Want it to ask before acting? Give
+it a field for the question. If you didn't model it, the agent can't express it —
+which forces it to stay concrete and inside the surface you designed.
+
+And because communication *is* state, the loop is symmetric. The agent commits
+state and hands back; your app reads it, renders it, and **writes to it** — the
+user approves something, answers a question, edits a value — and the agent reads
+that change on its next turn. State is the shared medium both sides write to;
+`readonly` marks the fields that are the user's, not the model's. That's how you
+get real interactivity — approval gates, clarifications, steering — without a chat
+box. **Designing the state schema is designing the product.**
 
 ## Install
 
@@ -27,10 +42,10 @@ npm install state-harness
 import { z } from "zod";
 import { createAgent, defineTool, anthropicProvider } from "state-harness";
 
-// 1. Declare state as a schema. Defaults define the initial state; the schema
-//    goes in the system prompt so the model knows its shape.
+// 1. Declare state as a schema (shape only, no defaults). It goes in the system
+//    prompt so the model knows what it's working with.
 const StateSchema = z.object({
-  notes: z.array(z.string()).default([]),
+  notes: z.array(z.string()),
   answer: z.string().optional(),
 });
 type State = z.infer<typeof StateSchema>;
@@ -50,7 +65,7 @@ const agent = createAgent({
   system: "Look it up, then setState the `answer` field (setState ends your turn).",
 });
 
-const session = agent.createSession();
+const session = agent.createSession({ state: { notes: [] } });
 await session.send("Weather in Oslo — should I pack a coat?");
 console.log(session.getState().answer);
 ```
@@ -65,12 +80,29 @@ ANTHROPIC_API_KEY=sk-... npm run example
 
 ### State is a schema
 
-You pass `state: ZodObject` to `createAgent`. From it the harness:
+You pass `state: ZodObject` to `createAgent` — that's the *shape* (types and
+`.readonly()` markers, **no defaults**). The **complete state** is supplied per
+session at `createSession({ state })`: the session inserts every value, and it's
+validated against the schema. This keeps the agent reusable while a session starts
+from any concrete state — a fresh start or one you're resuming:
 
-- derives the **initial state** via `schema.parse({})` (so every field needs a
-  `.default()` or be optional);
-- puts the **schema + initial values in the system prompt** once (static, so it's
-  cached — not re-injected every turn);
+```ts
+const agent = createAgent({ provider, state: StateSchema, tools });
+
+const fresh = agent.createSession({ state: emptyState }); // every field, explicitly
+const resumed = agent.createSession({ state: snapshot }); // or rehydrate a saved one
+```
+
+State is the *domain* the model reasons about and the UI projects. Tool
+*configuration* (a workspace path, an API key, a DB handle) is **not** state — it
+belongs to the tool, injected when you build it (e.g. a `makeTools(workspace)`
+factory), not read out of `getState`.
+
+From the schema the harness:
+
+- describes the **schema in the system prompt** once (static → cached, not
+  re-injected per turn). It does *not* bake in initial values — the model calls
+  `getState` to read the current state;
 - auto-provides two built-in tools the model uses to read and write state:
 
 | Tool | What it does |
@@ -125,7 +157,7 @@ A `Session` is a multi-turn conversation *and* a reactive store. Create it once,
 state **and** a log of every tool call the model made:
 
 ```ts
-const session = agent.createSession();
+const session = agent.createSession({ state: initialState });
 session.subscribe((state, toolCalls) => render(state));
 
 session.getState();      // current state
@@ -163,7 +195,8 @@ The provider must force the model to act (so it never returns an empty
 
 `demo/` works **change-by-change with approval**, and shows the whole model:
 
-- `state` is `{ changes, approvedFiles (readonly), status (readonly) }`.
+- `state` is `{ changes, approvedFiles (readonly), status (readonly) }`. The
+  workspace path is *tool config*, not state — it's passed to `makeTools(workspace)`.
 - The agent proposes via `setState({ changes: [...] })` — which hands back to wait.
 - `write_file` / `edit` are **hard-gated**: they error unless the file is in
   `approvedFiles`. The model can't approve its own work — `approvedFiles` is
@@ -199,7 +232,7 @@ built-in `setState`, and approval is just a readonly field. See
 | Export | What it is |
 | --- | --- |
 | `createAgent` / `Agent` | Define an agent by its `state` schema + effect `tools`. |
-| `agent.createSession()` | Start a multi-turn reactive `Session`. |
+| `agent.createSession({ state })` | Start a multi-turn reactive `Session` with its full initial state. |
 | `agent.run()` | One-shot convenience. |
 | `defineTool` | Build a typed effect tool from a Zod schema. |
 | `createStateTools` | The schema → `getState`/`setState` builder (used internally; exported for custom setups). |

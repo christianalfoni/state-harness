@@ -6,7 +6,7 @@ import { createAgent, defineTool, anthropicProvider } from "../src/index.js";
  * `getState` / `setState` tools; you bring effect tools (here, `get_weather`).
  */
 const StateSchema = z.object({
-  notes: z.array(z.string()).default([]),
+  notes: z.array(z.string()),
   answer: z.string().optional(),
 });
 type State = z.infer<typeof StateSchema>;
@@ -33,7 +33,7 @@ const agent = createAgent({
   },
 });
 
-const session = agent.createSession();
+const session = agent.createSession({ state: { notes: [] } });
 const result = await session.send("What's the weather in Oslo, and should I pack a coat?");
 
 console.log("\nstoppedBy:", result.stoppedBy, "  steps:", result.steps);
