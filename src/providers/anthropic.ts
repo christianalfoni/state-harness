@@ -1,11 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   Message,
+  ModelPricing,
   Provider,
   ProviderGenerateInput,
   ProviderGenerateOutput,
   ToolCall,
 } from "../types.js";
+
+/**
+ * Published per-1M-token prices (US$), by model. Cache-read is 0.1× input and
+ * cache-write (5-min TTL) is 1.25× input. Update when prices change.
+ */
+const PRICING: Record<string, ModelPricing> = {
+  "claude-opus-4-8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-4-7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-4-6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+};
 
 export interface AnthropicProviderOptions {
   /** Reuse an existing client, or let the adapter construct one from `apiKey`. */
@@ -21,6 +34,12 @@ export interface AnthropicProviderOptions {
    * exactly one per turn (`disable_parallel_tool_use`).
    */
   parallelToolCalls?: boolean;
+  /**
+   * Per-1M-token pricing for cost estimation. Defaults to the built-in rate for
+   * `model` (if known). Set this for a model the adapter doesn't have rates for,
+   * or to override them.
+   */
+  pricing?: ModelPricing;
 }
 
 /**
@@ -32,9 +51,11 @@ export function anthropicProvider(options: AnthropicProviderOptions = {}): Provi
   const model = options.model ?? "claude-opus-4-8";
   const maxTokens = options.maxTokens ?? 8192;
   const disableParallel = options.parallelToolCalls === false;
+  const pricing = options.pricing ?? PRICING[model];
 
   return {
     name: "anthropic",
+    pricing,
     async generate(input: ProviderGenerateInput): Promise<ProviderGenerateOutput> {
       const response = await client.messages.create(
         {

@@ -4,39 +4,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { defineTool } from "../src/index.js";
-import type { Tool, ToolDefinition } from "../src/index.js";
+import type { Tool } from "../src/index.js";
 
 const execAsync = promisify(exec);
 
-/**
- * The agent's state schema — the domain the model reasons about and the UI shows.
- * `changes` is the model's to maintain; `approvedFiles` and `status` are read-only
- * (host-only). Tool *configuration* (the workspace path) is NOT state — it's
- * injected when the tools are built (see `makeTools`).
- */
-export const StateSchema = z.object({
-  changes: z.array(
-    z.object({
-      file: z.string(),
-      description: z.string(),
-      status: z.enum(["proposed", "in_progress", "done"]),
-    }),
-  ),
-  /** Files the user has approved for editing. Read-only to the model. */
-  approvedFiles: z.array(z.string()).readonly(),
-  /** Working/idle, driven by the CLI. Read-only to the model. */
-  status: z.enum(["idle", "working"]).readonly(),
-});
-
-export type DemoState = z.infer<typeof StateSchema>;
-export type Change = DemoState["changes"][number];
-export type ChangeStatus = Change["status"];
-
-/** Build the effect tools, configured with the sandbox workspace (tool config, not state). */
-export function makeTools(workspace: string): Tool<DemoState>[] {
-  const tool = <S extends z.ZodType>(def: ToolDefinition<S, DemoState>) =>
-    defineTool<S, DemoState>(def);
-
+/** Build the effect tools, configured with the sandbox workspace. */
+export function makeTools(workspace: string): Tool[] {
   const resolve = (rel: string): string => {
     const root = path.resolve(workspace);
     const abs = path.resolve(root, rel);
@@ -46,24 +19,14 @@ export function makeTools(workspace: string): Tool<DemoState>[] {
     return abs;
   };
 
-  const requireApproved = (state: DemoState, file: string): void => {
-    const approved = state.approvedFiles.some((f) => path.normalize(f) === path.normalize(file));
-    if (!approved) {
-      throw new Error(
-        `"${file}" is not approved for editing. Propose it in the \`changes\` state and ` +
-          `wait for the user to approve before writing.`,
-      );
-    }
-  };
-
-  const readFile = tool({
+  const readFile = defineTool({
     name: "read_file",
     description: "Read a UTF-8 text file, given a path relative to the workspace root.",
     input: z.object({ path: z.string().describe("Path relative to the workspace root.") }),
     handler: async ({ path: rel }) => await fs.readFile(resolve(rel), "utf8"),
   });
 
-  const listFiles = tool({
+  const listFiles = defineTool({
     name: "list_files",
     description:
       "List entries directly under a path in the workspace (directories suffixed with '/'). " +
@@ -77,17 +40,14 @@ export function makeTools(workspace: string): Tool<DemoState>[] {
     },
   });
 
-  const writeFile = tool({
+  const writeFile = defineTool({
     name: "write_file",
-    description:
-      "Create or overwrite a UTF-8 text file. The file must be APPROVED first (propose it " +
-      "in `changes` and wait for the user) — this fails otherwise.",
+    description: "Create or overwrite a UTF-8 text file, given a path relative to the workspace root.",
     input: z.object({
       path: z.string().describe("Path relative to the workspace root."),
       content: z.string().describe("Full file contents."),
     }),
-    handler: async ({ path: rel, content }, ctx) => {
-      requireApproved(ctx.getState(), rel);
+    handler: async ({ path: rel, content }) => {
       const abs = resolve(rel);
       await fs.mkdir(path.dirname(abs), { recursive: true });
       await fs.writeFile(abs, content, "utf8");
@@ -95,19 +55,18 @@ export function makeTools(workspace: string): Tool<DemoState>[] {
     },
   });
 
-  const editFile = tool({
+  const editFile = defineTool({
     name: "edit",
     description:
-      "Edit a file by replacing an exact string (prefer over rewriting). The file must be " +
-      "APPROVED first. oldString must appear EXACTLY once unless replaceAll is set.",
+      "Edit a file by replacing an exact string (prefer over rewriting). oldString must appear " +
+      "EXACTLY once unless replaceAll is set.",
     input: z.object({
       path: z.string().describe("Path relative to the workspace root."),
       oldString: z.string().describe("Exact text to replace, unique within the file."),
       newString: z.string().describe("Replacement text."),
       replaceAll: z.boolean().optional().describe("Replace every occurrence."),
     }),
-    handler: async ({ path: rel, oldString, newString, replaceAll }, ctx) => {
-      requireApproved(ctx.getState(), rel);
+    handler: async ({ path: rel, oldString, newString, replaceAll }) => {
       const abs = resolve(rel);
       const content = await fs.readFile(abs, "utf8");
       const matches = content.split(oldString).length - 1;
@@ -123,12 +82,12 @@ export function makeTools(workspace: string): Tool<DemoState>[] {
     },
   });
 
-  const bash = tool({
+  const bash = defineTool({
     name: "bash",
     description:
       "Run a shell command in the workspace (builds, tests, git, installs). Returns stdout, " +
-      "stderr, exit code; a non-zero exit is returned, not thrown. Do NOT use it to edit code " +
-      "files — use write_file/edit so the change goes through approval.",
+      "stderr, exit code; a non-zero exit is returned, not thrown. Use write_file/edit to change " +
+      "code files, not bash.",
     input: z.object({ command: z.string().describe("The shell command to run.") }),
     handler: async ({ command }) => {
       try {

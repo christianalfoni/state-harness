@@ -1,6 +1,6 @@
 node_modules/
 dist/
-demo/workspace/
+cli/workspace/
 *.log
 .env
 .DS_Store
