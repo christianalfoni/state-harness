@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { Tool, ToolContext } from "./types.js";
 
-export interface ToolDefinition<Schema extends z.ZodType, State> {
+export interface ToolDefinition<Schema extends z.ZodType> {
   /** Unique tool name the model calls. Keep it specific: `run_tests`, not `test`. */
   name: string;
   /**
@@ -13,13 +13,13 @@ export interface ToolDefinition<Schema extends z.ZodType, State> {
   /** Zod schema for the input. Drives both validation and the JSON Schema. */
   input: Schema;
   /**
-   * Mark this tool as terminal: running it ends the session and its return
-   * value becomes the run result.
+   * Mark this tool as terminal: running it ends the run and its return
+   * value becomes the result.
    */
   final?: boolean;
   handler: (
     input: z.infer<Schema>,
-    ctx: ToolContext<State>,
+    ctx: ToolContext,
   ) => unknown | Promise<unknown>;
 }
 
@@ -36,9 +36,9 @@ export interface ToolDefinition<Schema extends z.ZodType, State> {
  * });
  * ```
  */
-export function defineTool<Schema extends z.ZodType, State = unknown>(
-  def: ToolDefinition<Schema, State>,
-): Tool<State> {
+export function defineTool<Schema extends z.ZodType>(
+  def: ToolDefinition<Schema>,
+): Tool {
   const jsonSchema = zodToJsonSchema(def.input, {
     target: "jsonSchema7",
     $refStrategy: "none",
@@ -52,6 +52,6 @@ export function defineTool<Schema extends z.ZodType, State = unknown>(
     inputSchema: def.input,
     jsonSchema,
     final: def.final ?? false,
-    handler: def.handler as Tool<State>["handler"],
+    handler: def.handler as Tool["handler"],
   };
 }
